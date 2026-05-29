@@ -7,11 +7,6 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "scheme": "shmofve",
-    "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#1a1814"
-    },
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.shmofve.app"
@@ -48,7 +43,11 @@
       ],
       "expo-font",
       "expo-image",
-      "expo-splash-screen",
+      ["expo-splash-screen", {
+        "image": "./assets/splash-icon.png",
+        "resizeMode": "contain",
+        "backgroundColor": "#1a1814"
+      }],
       "expo-web-browser"
     ],
     "extra": {
