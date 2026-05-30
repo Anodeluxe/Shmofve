@@ -1,4 +1,5 @@
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, PanResponder } from 'react-native';
+import { useMemo } from 'react';
 import * as Haptics from 'expo-haptics';
 import { Page, PaletteName, TextureName, LayoutName } from '../types';
 import { paletteFor } from '../palette';
@@ -29,6 +30,14 @@ export function ShuffleScreen({
 }: Props) {
   const tone = paletteFor(palette)[dark ? 'ink' : 'cream'];
 
+  const swipePan = useMemo(() => PanResponder.create({
+    onMoveShouldSetPanResponder: (_, g) =>
+      Math.abs(g.dx) > Math.abs(g.dy) && g.dx > 10,
+    onPanResponderRelease: (_, g) => {
+      if (g.dx > 60 && Math.abs(g.dy) < 80) onNext();
+    },
+  }), [onNext]);
+
   if (!page) {
     return (
       <View style={[styles.screen, { backgroundColor: tone.bg }]}>
@@ -58,7 +67,7 @@ export function ShuffleScreen({
       </View>
 
       {/* Card */}
-      <View style={styles.cardArea}>
+      <View style={styles.cardArea} {...swipePan.panHandlers}>
         <View style={[styles.cardWrapper, { borderColor: tone.hairline }]}>
           <PageCard
             page={page}

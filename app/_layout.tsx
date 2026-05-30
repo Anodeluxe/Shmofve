@@ -1,5 +1,4 @@
-import React, { useEffect } from 'react';
-import { View } from 'react-native';
+import React, { useEffect, useRef } from 'react';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import {
@@ -17,12 +16,11 @@ import {
 import { useDeckStore } from '../src/store/deckStore';
 import { useShuffleStore } from '../src/store/shuffleStore';
 import { useSettingsStore } from '../src/store/settingsStore';
-import { SHELL_BG } from '../src/constants/theme';
 
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
-  const [fontsLoaded] = useFonts({
+  const [fontsLoaded, fontError] = useFonts({
     InstrumentSerif_400Regular,
     InstrumentSerif_400Regular_Italic,
     DMSans_400Regular,
@@ -36,8 +34,19 @@ export default function RootLayout() {
   const initQueue = useShuffleStore(s => s.initQueue);
   const loadSettings = useSettingsStore(s => s.loadSettings);
 
+  const splashHidden = useRef(false);
+  const hideSplash = () => {
+    if (!splashHidden.current) {
+      splashHidden.current = true;
+      SplashScreen.hideAsync();
+    }
+  };
+
   useEffect(() => {
     Promise.all([loadFromStorage(), loadSettings()]);
+    // Safety net: hide splash after 4 s no matter what
+    const timer = setTimeout(hideSplash, 4000);
+    return () => clearTimeout(timer);
   }, []);
 
   useEffect(() => {
@@ -47,15 +56,13 @@ export default function RootLayout() {
   }, [isLoaded]);
 
   useEffect(() => {
-    if (fontsLoaded && isLoaded) {
-      SplashScreen.hideAsync();
+    if ((fontsLoaded || fontError) && isLoaded) {
+      hideSplash();
     }
-  }, [fontsLoaded, isLoaded]);
+  }, [fontsLoaded, fontError, isLoaded]);
 
-  if (!fontsLoaded || !isLoaded) {
-    return <View style={{ flex: 1, backgroundColor: SHELL_BG }} />;
-  }
-
+  // Always render Stack so expo-router can initialise its navigation tree.
+  // The native splash screen covers the app while fonts/data load.
   return (
     <Stack screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
       <Stack.Screen name="index" />
