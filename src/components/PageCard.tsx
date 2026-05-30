@@ -16,7 +16,7 @@ interface Props {
   fade: boolean;
 }
 
-const MEDIA_TYPES = ['image', 'video', 'multi'] as const;
+const MEDIA_TYPES = ['image', 'video', 'gif', 'multi'] as const;
 
 export function PageCard({ page, palette, texture, layout, fade }: Props) {
   const baseTone = paletteFor(palette)[page.tone ?? 'cream'];
@@ -113,6 +113,7 @@ function FullBleedLayout({ page, tone }: { page: Page; tone: Tone }) {
           source={{ uri: page.localMediaUri }}
           style={StyleSheet.absoluteFill}
           contentFit="cover"
+          autoplay
         />
       ) : (
         <MediaSlot
@@ -163,7 +164,7 @@ interface NormalProps {
 
 function NormalLayout({ page, tone, textAlign, alignItems, padX, padY, layout }: NormalProps) {
   const isQuote = page.type === 'quote' || page.type === 'attributed';
-  const isMedia = page.type === 'image' || page.type === 'video';
+  const isMedia = page.type === 'image' || page.type === 'video' || page.type === 'gif';
   const fontSize = isQuote ? 34 : 26;
 
   // Image / video cards: flex column so media fills available height
@@ -178,12 +179,13 @@ function NormalLayout({ page, tone, textAlign, alignItems, padX, padY, layout }:
 
         {/* Media fills remaining space */}
         <View style={{ flex: 1, paddingHorizontal: padX, paddingTop: 10, paddingBottom: 8, overflow: 'hidden' }}>
-          {page.type === 'image' ? (
+          {(page.type === 'image' || page.type === 'gif') ? (
             page.localMediaUri ? (
               <Image
                 source={{ uri: page.localMediaUri }}
                 style={{ flex: 1, borderRadius: 4 }}
                 contentFit="contain"
+                autoplay
               />
             ) : (
               <MediaSlot kind="image" label={page.placeholder} tone={tone} full />

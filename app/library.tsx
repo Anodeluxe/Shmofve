@@ -9,7 +9,7 @@ import { useSettingsStore } from '../src/store/settingsStore';
 
 export default function LibraryRoute() {
   const router = useRouter();
-  const { decks, pages, addDeck, updateDeck, deleteDeck } = useDeckStore();
+  const { decks, pages, addDeck, deleteDeck } = useDeckStore();
   const { settings } = useSettingsStore();
   const { setScope } = useShuffleStore();
 
@@ -26,8 +26,8 @@ export default function LibraryRoute() {
     router.push({ pathname: '/editor', params: { deckId: decks[0]?.id } });
   };
 
-  const handleCreateDeck = () => {
-    return addDeck({ title: 'New deck', subtitle: '', isDefault: false });
+  const handleCreateDeck = (title: string, subtitle: string) => {
+    return addDeck({ title, subtitle, isDefault: false });
   };
 
   return (
@@ -42,7 +42,6 @@ export default function LibraryRoute() {
         onNew={handleNew}
         onShuffleAll={handleShuffleAll}
         onCreateDeck={handleCreateDeck}
-        onUpdateDeck={updateDeck}
         onDeleteDeck={deleteDeck}
       />
     </SafeAreaView>

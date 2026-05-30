@@ -50,8 +50,9 @@ export const useShuffleStore = create<ShuffleStore>((set, get) => ({
   },
 
   prev: () => {
-    const { cursor } = get();
-    if (cursor > 0) set({ cursor: cursor - 1 });
+    const { cursor, order } = get();
+    if (order.length === 0) return;
+    set({ cursor: cursor > 0 ? cursor - 1 : order.length - 1 });
   },
 
   setScope: (scope, pages) => {

@@ -1,4 +1,4 @@
-export type PageType = 'quote' | 'attributed' | 'image' | 'video' | 'link' | 'multi';
+export type PageType = 'quote' | 'attributed' | 'image' | 'video' | 'gif' | 'link' | 'multi';
 export type ToneName = 'cream' | 'ink' | 'sand';
 export type PaletteName = 'Linen' | 'Mist' | 'Sage' | 'Bone';
 export type TextureName = 'flat' | 'grain' | 'gradient' | 'paper';

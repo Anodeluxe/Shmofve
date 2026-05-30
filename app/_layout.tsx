@@ -17,8 +17,6 @@ import { useDeckStore } from '../src/store/deckStore';
 import { useShuffleStore } from '../src/store/shuffleStore';
 import { useSettingsStore } from '../src/store/settingsStore';
 
-SplashScreen.preventAutoHideAsync();
-
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({
     InstrumentSerif_400Regular,
@@ -45,7 +43,7 @@ export default function RootLayout() {
   useEffect(() => {
     Promise.all([loadFromStorage(), loadSettings()]);
     // Safety net: hide splash after 4 s no matter what
-    const timer = setTimeout(hideSplash, 4000);
+    const timer = setTimeout(hideSplash, 2000);
     return () => clearTimeout(timer);
   }, []);
 

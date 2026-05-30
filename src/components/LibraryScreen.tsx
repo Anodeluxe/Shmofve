@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import {
-  View, Text, TouchableOpacity, ScrollView,
-  TextInput, Alert, StyleSheet,
+  View, Text, TouchableOpacity, ScrollView, StyleSheet,
+  Modal, TextInput, KeyboardAvoidingView, Platform,
 } from 'react-native';
-import { Deck, Page, PaletteName } from '../types';
+import { Deck, Page, PaletteName, Tone } from '../types';
 import { paletteFor } from '../palette';
 import { TopBar } from './TopBar';
 import { DESTRUCTIVE } from '../constants/theme';
@@ -17,28 +17,30 @@ interface Props {
   onOpenDeck: (id: string) => void;
   onNew: () => void;
   onShuffleAll: () => void;
-  onCreateDeck: () => string;
-  onUpdateDeck: (id: string, patch: Partial<Deck>) => void;
+  onCreateDeck: (title: string, subtitle: string) => string;
   onDeleteDeck: (id: string) => void;
 }
 
 export function LibraryScreen({
   decks, pages, palette, dark,
   onBack, onOpenDeck, onNew, onShuffleAll,
-  onCreateDeck, onUpdateDeck, onDeleteDeck,
+  onCreateDeck, onDeleteDeck,
 }: Props) {
   const tone = paletteFor(palette)[dark ? 'ink' : 'cream'];
-  const [editing, setEditing] = useState(false);
 
-  const confirmDelete = (deck: Deck, count: number) => {
-    Alert.alert(
-      `Delete "${deck.title}"?`,
-      count > 0 ? `This will also remove ${count} page${count === 1 ? '' : 's'}.` : undefined,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Delete', style: 'destructive', onPress: () => onDeleteDeck(deck.id) },
-      ]
-    );
+  // New deck modal
+  const [showNewDeck, setShowNewDeck] = useState(false);
+
+  // Long-press delete flow: step 1 = actions sheet, step 2 = confirm
+  const [actionDeck, setActionDeck] = useState<Deck | null>(null);
+  const [confirmDeck, setConfirmDeck] = useState<Deck | null>(null);
+
+  const handleLongPress = (deck: Deck) => setActionDeck(deck);
+
+  const handleDeleteConfirmed = (deck: Deck) => {
+    onDeleteDeck(deck.id);
+    setConfirmDeck(null);
+    setActionDeck(null);
   };
 
   return (
@@ -51,11 +53,6 @@ export function LibraryScreen({
           </TouchableOpacity>
         }
         title="Library"
-        right={
-          <TouchableOpacity onPress={() => setEditing(e => !e)}>
-            <Text style={[styles.navBtn, { color: tone.ink }]}>{editing ? 'Done' : 'Manage'}</Text>
-          </TouchableOpacity>
-        }
       />
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
@@ -64,14 +61,12 @@ export function LibraryScreen({
           {pages.length} pages across {decks.length} decks
         </Text>
 
-        {!editing && (
-          <TouchableOpacity
-            onPress={onShuffleAll}
-            style={[styles.shuffleAllBtn, { backgroundColor: tone.ink, borderColor: tone.hairline }]}
-          >
-            <Text style={[styles.shuffleAllBtnText, { color: tone.bg }]}>⇋ Shuffle everything</Text>
-          </TouchableOpacity>
-        )}
+        <TouchableOpacity
+          onPress={onShuffleAll}
+          style={[styles.shuffleAllBtn, { backgroundColor: tone.ink }]}
+        >
+          <Text style={[styles.shuffleAllBtnText, { color: tone.bg }]}>⇋ Shuffle everything</Text>
+        </TouchableOpacity>
 
         <View style={{ marginTop: 4 }}>
           {decks.map((deck, i) => {
@@ -83,85 +78,87 @@ export function LibraryScreen({
                 count={count}
                 tone={tone}
                 first={i === 0}
-                editing={editing}
                 onOpen={() => onOpenDeck(deck.id)}
-                onUpdate={(patch) => onUpdateDeck(deck.id, patch)}
-                onDelete={() => confirmDelete(deck, count)}
+                onLongPress={() => handleLongPress(deck)}
               />
             );
           })}
         </View>
 
         <TouchableOpacity
-          onPress={() => { onCreateDeck(); setEditing(true); }}
+          onPress={() => setShowNewDeck(true)}
           style={[styles.newDeckBtn, { borderColor: tone.hairline }]}
         >
           <Text style={[styles.newDeckBtnText, { color: tone.muted }]}>＋ New deck</Text>
         </TouchableOpacity>
 
-        {editing && (
-          <Text style={[styles.editHint, { color: tone.muted }]}>
-            Tap a field to rename · ⊖ to delete
-          </Text>
-        )}
+        <Text style={[styles.editHint, { color: tone.muted }]}>
+          Hold a deck name to delete it
+        </Text>
       </ScrollView>
 
-      {/* FAB */}
+      {/* FAB — add new page */}
       <TouchableOpacity
         onPress={onNew}
         style={[styles.fab, { backgroundColor: tone.ink }]}
       >
         <Text style={[styles.fabText, { color: tone.bg }]}>＋</Text>
       </TouchableOpacity>
+
+      {/* New deck modal */}
+      <NewDeckModal
+        visible={showNewDeck}
+        tone={tone}
+        onCreate={(title, subtitle) => {
+          onCreateDeck(title, subtitle);
+          setShowNewDeck(false);
+          setEditing(false);
+        }}
+        onCancel={() => setShowNewDeck(false)}
+      />
+
+      {/* Actions sheet (long-press) */}
+      <DeckActionsModal
+        deck={actionDeck}
+        tone={tone}
+        onDelete={() => { setConfirmDeck(actionDeck); setActionDeck(null); }}
+        onCancel={() => setActionDeck(null)}
+      />
+
+      {/* Delete confirmation */}
+      <DeleteConfirmModal
+        deck={confirmDeck}
+        count={confirmDeck ? pages.filter(p => p.deckId === confirmDeck.id).length : 0}
+        tone={tone}
+        onConfirm={() => confirmDeck && handleDeleteConfirmed(confirmDeck)}
+        onCancel={() => setConfirmDeck(null)}
+      />
     </View>
   );
 }
+
+// ─── Deck row ─────────────────────────────────────────────────────────────────
 
 interface DeckRowProps {
   deck: Deck;
   count: number;
   tone: ReturnType<typeof paletteFor>['cream'];
   first: boolean;
-  editing: boolean;
   onOpen: () => void;
-  onUpdate: (patch: Partial<Deck>) => void;
-  onDelete: () => void;
+  onLongPress: () => void;
 }
 
-function DeckRow({ deck, count, tone, first, editing, onOpen, onUpdate, onDelete }: DeckRowProps) {
-  const borderTop = first ? { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: tone.hairline } : {};
-
-  if (editing) {
-    return (
-      <View style={[styles.deckRowBase, borderTop, { borderBottomColor: tone.hairline }]}>
-        <TouchableOpacity onPress={onDelete} style={styles.deleteCircle}>
-          <Text style={styles.deleteCircleText}>–</Text>
-        </TouchableOpacity>
-        <View style={{ flex: 1, gap: 4 }}>
-          <TextInput
-            value={deck.title}
-            onChangeText={(v) => onUpdate({ title: v })}
-            style={[styles.deckTitleInput, { color: tone.ink, borderBottomColor: tone.hairline }]}
-          />
-          <TextInput
-            value={deck.subtitle || ''}
-            onChangeText={(v) => onUpdate({ subtitle: v })}
-            placeholder="Add a description"
-            placeholderTextColor={tone.muted}
-            style={[styles.deckSubtitleInput, { color: tone.muted }]}
-          />
-        </View>
-        <Text style={[styles.deckCount, { color: tone.muted }]}>
-          {String(count).padStart(2, '0')}
-        </Text>
-      </View>
-    );
-  }
+function DeckRow({ deck, count, tone, first, onOpen, onLongPress }: DeckRowProps) {
+  const borderTop = first
+    ? { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: tone.hairline }
+    : {};
 
   return (
     <TouchableOpacity
       onPress={onOpen}
-      style={[styles.deckRowBase, styles.deckRowInteractive, borderTop, { borderBottomColor: tone.hairline }]}
+      onLongPress={onLongPress}
+      delayLongPress={400}
+      style={[styles.deckRowBase, borderTop, { borderBottomColor: tone.hairline }]}
     >
       <View style={{ flex: 1, gap: 4 }}>
         <Text style={[styles.deckTitle, { color: tone.ink }]}>{deck.title}</Text>
@@ -178,6 +175,160 @@ function DeckRow({ deck, count, tone, first, editing, onOpen, onUpdate, onDelete
     </TouchableOpacity>
   );
 }
+
+// ─── New Deck Modal ───────────────────────────────────────────────────────────
+
+function NewDeckModal({
+  visible, tone, onCreate, onCancel,
+}: {
+  visible: boolean;
+  tone: Tone;
+  onCreate: (title: string, subtitle: string) => void;
+  onCancel: () => void;
+}) {
+  const [title, setTitle] = useState('');
+  const [subtitle, setSubtitle] = useState('');
+
+  const reset = () => { setTitle(''); setSubtitle(''); };
+
+  const handleCreate = () => {
+    const t = title.trim();
+    if (!t) return;
+    onCreate(t, subtitle.trim());
+    reset();
+  };
+
+  const handleCancel = () => { reset(); onCancel(); };
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={handleCancel}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={{ flex: 1 }}
+      >
+        <View style={m.overlay}>
+          <View style={[m.card, { backgroundColor: tone.bg, borderColor: tone.hairline }]}>
+            <Text style={[m.heading, { color: tone.ink }]}>New deck</Text>
+
+            <View style={m.field}>
+              <Text style={[m.label, { color: tone.muted }]}>Name</Text>
+              <TextInput
+                value={title}
+                onChangeText={setTitle}
+                placeholder="e.g. Morning Pages"
+                placeholderTextColor={tone.muted}
+                style={[m.input, { color: tone.ink, borderBottomColor: tone.hairline }]}
+                autoFocus
+                returnKeyType="next"
+              />
+            </View>
+
+            <View style={m.field}>
+              <Text style={[m.label, { color: tone.muted }]}>Description</Text>
+              <TextInput
+                value={subtitle}
+                onChangeText={setSubtitle}
+                placeholder="Optional"
+                placeholderTextColor={tone.muted}
+                style={[m.input, { color: tone.ink, borderBottomColor: tone.hairline }]}
+                returnKeyType="done"
+                onSubmitEditing={handleCreate}
+              />
+            </View>
+
+            <TouchableOpacity
+              onPress={handleCreate}
+              style={[m.primaryBtn, { backgroundColor: tone.ink, opacity: title.trim() ? 1 : 0.4 }]}
+              disabled={!title.trim()}
+            >
+              <Text style={[m.primaryBtnText, { color: tone.bg }]}>Create deck</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity onPress={handleCancel} style={m.cancelBtn}>
+              <Text style={[m.cancelText, { color: tone.muted }]}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
+// ─── Deck Actions Modal (long-press) ─────────────────────────────────────────
+
+function DeckActionsModal({
+  deck, tone, onDelete, onCancel,
+}: {
+  deck: Deck | null;
+  tone: Tone;
+  onDelete: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <Modal visible={!!deck} transparent animationType="fade" onRequestClose={onCancel}>
+      <View style={m.overlay}>
+        <View style={[m.card, { backgroundColor: tone.bg, borderColor: tone.hairline }]}>
+          <Text style={[m.heading, { color: tone.ink }]} numberOfLines={1}>
+            {deck?.title}
+          </Text>
+
+          <TouchableOpacity
+            onPress={onDelete}
+            style={[m.dangerBtn, { borderColor: DESTRUCTIVE }]}
+          >
+            <Text style={[m.dangerBtnText, { color: DESTRUCTIVE }]}>Delete deck</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity onPress={onCancel} style={m.cancelBtn}>
+            <Text style={[m.cancelText, { color: tone.muted }]}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+// ─── Delete Confirmation Modal ────────────────────────────────────────────────
+
+function DeleteConfirmModal({
+  deck, count, tone, onConfirm, onCancel,
+}: {
+  deck: Deck | null;
+  count: number;
+  tone: Tone;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <Modal visible={!!deck} transparent animationType="fade" onRequestClose={onCancel}>
+      <View style={m.overlay}>
+        <View style={[m.card, { backgroundColor: tone.bg, borderColor: tone.hairline }]}>
+          <Text style={[m.heading, { color: tone.ink }]}>
+            Delete "{deck?.title}"?
+          </Text>
+          {count > 0 && (
+            <Text style={[m.body, { color: tone.muted }]}>
+              This will permanently remove {count} page{count === 1 ? '' : 's'} inside this deck.
+            </Text>
+          )}
+
+          <TouchableOpacity
+            onPress={onConfirm}
+            style={[m.primaryBtn, { backgroundColor: DESTRUCTIVE }]}
+          >
+            <Text style={[m.primaryBtnText, { color: '#fff' }]}>Yes, delete</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity onPress={onCancel} style={m.cancelBtn}>
+            <Text style={[m.cancelText, { color: tone.muted }]}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
@@ -202,7 +353,6 @@ const styles = StyleSheet.create({
     width: '100%',
     padding: 14,
     borderRadius: 4,
-    borderWidth: 1,
     alignItems: 'center',
     marginBottom: 22,
   },
@@ -213,15 +363,11 @@ const styles = StyleSheet.create({
   },
   deckRowBase: {
     borderBottomWidth: StyleSheet.hairlineWidth,
-    paddingVertical: 14,
+    paddingVertical: 18,
     paddingHorizontal: 4,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-  },
-  deckRowInteractive: {
-    paddingVertical: 18,
-    justifyContent: 'space-between',
   },
   deckTitle: {
     fontFamily: 'InstrumentSerif_400Regular',
@@ -232,18 +378,6 @@ const styles = StyleSheet.create({
   deckSubtitle: {
     fontFamily: 'DMSans_400Regular',
     fontSize: 12,
-  },
-  deckTitleInput: {
-    fontFamily: 'InstrumentSerif_400Regular',
-    fontStyle: 'italic',
-    fontSize: 20,
-    paddingVertical: 4,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  deckSubtitleInput: {
-    fontFamily: 'DMSans_400Regular',
-    fontSize: 12,
-    paddingVertical: 2,
   },
   deckRowRight: {
     flexDirection: 'row',
@@ -256,15 +390,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.6,
   },
   chevron: { fontSize: 16, opacity: 0.6 },
-  deleteCircle: {
-    width: 24, height: 24, borderRadius: 12,
-    backgroundColor: DESTRUCTIVE,
-    alignItems: 'center', justifyContent: 'center',
-    flexShrink: 0,
-  },
-  deleteCircleText: {
-    color: '#fff', fontSize: 16, fontWeight: '600', lineHeight: 20,
-  },
   newDeckBtn: {
     marginTop: 22,
     width: '100%',
@@ -302,4 +427,85 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   fabText: { fontSize: 24, lineHeight: 28 },
+});
+
+const m = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    paddingHorizontal: 18,
+    paddingBottom: 36,
+  },
+  card: {
+    width: '100%',
+    borderRadius: 20,
+    borderWidth: 1,
+    paddingTop: 28,
+    paddingBottom: 24,
+    paddingHorizontal: 24,
+    gap: 14,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 24,
+    elevation: 16,
+  },
+  heading: {
+    fontFamily: 'InstrumentSerif_400Regular_Italic',
+    fontSize: 24,
+    lineHeight: 28,
+  },
+  body: {
+    fontFamily: 'DMSans_400Regular',
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: -4,
+  },
+  field: { gap: 4 },
+  label: {
+    fontFamily: 'JetBrainsMono_400Regular',
+    fontSize: 10,
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+  },
+  input: {
+    fontFamily: 'DMSans_400Regular',
+    fontSize: 16,
+    paddingVertical: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  primaryBtn: {
+    height: 50,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
+  },
+  primaryBtnText: {
+    fontFamily: 'DMSans_500Medium',
+    fontSize: 15,
+    letterSpacing: 0.2,
+  },
+  dangerBtn: {
+    height: 50,
+    borderRadius: 999,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dangerBtnText: {
+    fontFamily: 'DMSans_500Medium',
+    fontSize: 15,
+    letterSpacing: 0.2,
+  },
+  cancelBtn: {
+    alignItems: 'center',
+    paddingVertical: 6,
+  },
+  cancelText: {
+    fontFamily: 'DMSans_400Regular',
+    fontSize: 14,
+  },
 });

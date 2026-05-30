@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity,
-  ScrollView, StyleSheet, Alert,
+  ScrollView, StyleSheet, Alert, Modal,
+  KeyboardAvoidingView, Platform,
 } from 'react-native';
+import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import * as Crypto from 'expo-crypto';
 import {
@@ -14,8 +16,20 @@ import { PageCard } from './PageCard';
 import { TopBar } from './TopBar';
 import { DESTRUCTIVE } from '../constants/theme';
 
-const PAGE_TYPES: PageType[] = ['quote', 'attributed', 'image', 'video', 'link', 'multi'];
+const PAGE_TYPES: PageType[] = ['quote', 'attributed', 'image', 'video', 'gif', 'link', 'multi'];
 const TONE_NAMES: ToneName[] = ['cream', 'ink', 'sand'];
+
+// Comprehensive color grid for the custom picker (8 × 6)
+const COLOR_GRID = [
+  '#fdf8f0', '#f5ede0', '#ede0c8', '#d4c8b0', '#a89070', '#6a5040',
+  '#fce8e8', '#f5bcbc', '#e87070', '#d04040', '#a02020', '#600010',
+  '#fde8d0', '#f7c490', '#e89050', '#d06020', '#a04010', '#602808',
+  '#fdf3c0', '#f7e080', '#e8c838', '#c8a010', '#906800', '#584000',
+  '#eef8e0', '#b4e0a0', '#70c060', '#28a030', '#106018', '#083808',
+  '#e0f4f0', '#a0d8d0', '#50b8b0', '#188890', '#086870', '#024048',
+  '#e0ecf8', '#a0c0e8', '#5090d8', '#2060c0', '#103090', '#081858',
+  '#ede0f8', '#c090e8', '#8050d0', '#5020a8', '#300878', '#180440',
+];
 
 interface Props {
   page: Page;
@@ -32,6 +46,7 @@ interface Props {
 export function EditorScreen({ page, decks, palette, texture, layout, dark, onCancel, onSave, onDelete }: Props) {
   const tone = paletteFor(palette)[dark ? 'ink' : 'cream'];
   const [draft, setDraft] = useState<Page>({ ...page });
+  const [showColorPicker, setShowColorPicker] = useState(false);
 
   const set = <K extends keyof Page>(k: K, v: Page[K]) =>
     setDraft(d => ({ ...d, [k]: v }));
@@ -55,8 +70,22 @@ export function EditorScreen({ page, decks, palette, texture, layout, dark, onCa
     }
   };
 
+  const pickGif = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: 'images',
+      quality: 1,
+      allowsEditing: false, // editing strips GIF animation
+    });
+    if (!result.canceled && result.assets[0]) {
+      const uri = result.assets[0].uri;
+      const ext = uri.split('.').pop()?.toLowerCase() ?? 'gif';
+      const filename = `gif_${Crypto.randomUUID()}.${ext}`;
+      const localUri = await copyMediaToAppStorage(uri, filename);
+      set('localMediaUri', localUri);
+    }
+  };
+
   const pickVideo = async () => {
-    // Use ImagePicker for videos — returns file:// URI with proper permissions
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: 'videos',
       quality: 1,
@@ -85,10 +114,21 @@ export function EditorScreen({ page, decks, palette, texture, layout, dark, onCa
     ]);
   };
 
-  const needsMedia = ['image', 'video', 'multi'].includes(draft.type);
+  const needsMedia = ['image', 'video', 'gif', 'multi'].includes(draft.type);
   const needsAuthor = ['attributed', 'multi'].includes(draft.type);
   const needsLink = ['link', 'multi'].includes(draft.type);
   const needsCaption = draft.type !== 'quote';
+
+  const mediaPicker = draft.type === 'video' ? pickVideo
+    : draft.type === 'gif' ? pickGif
+    : pickImage;
+
+  const mediaKind = draft.type === 'video' ? 'video'
+    : draft.type === 'gif' ? 'gif'
+    : 'image';
+
+  // Whether bgColor is a custom hex (not in presets and not undefined)
+  const isCustomBg = !!draft.bgColor && !CUSTOM_BG_COLORS.includes(draft.bgColor);
 
   return (
     <View style={[styles.screen, { backgroundColor: tone.bg }]}>
@@ -171,10 +211,10 @@ export function EditorScreen({ page, decks, palette, texture, layout, dark, onCa
             <Spacer />
             <Label tone={tone}>Media</Label>
             <UploadSlot
-              kind={draft.type === 'video' ? 'video' : 'image'}
+              kind={mediaKind}
               tone={tone}
               hasMedia={!!draft.localMediaUri}
-              onPick={draft.type === 'video' ? pickVideo : pickImage}
+              onPick={mediaPicker}
             />
             <FieldInput
               value={draft.placeholder || ''}
@@ -234,19 +274,19 @@ export function EditorScreen({ page, decks, palette, texture, layout, dark, onCa
         <Spacer />
         <Label tone={tone}>Background color</Label>
         <View style={styles.swatchRow}>
+          {/* Auto (no custom bg) */}
           <TouchableOpacity
             onPress={() => set('bgColor', undefined)}
             style={[
               styles.swatch,
               styles.swatchAuto,
-              {
-                borderColor: !draft.bgColor ? tone.ink : tone.hairline,
-                borderWidth: 2,
-              },
+              { borderColor: !draft.bgColor ? tone.ink : tone.hairline, borderWidth: 2 },
             ]}
           >
             <Text style={[styles.swatchAutoText, { color: tone.muted }]}>auto</Text>
           </TouchableOpacity>
+
+          {/* Preset swatches */}
           {CUSTOM_BG_COLORS.map(c => (
             <TouchableOpacity
               key={c}
@@ -257,6 +297,24 @@ export function EditorScreen({ page, decks, palette, texture, layout, dark, onCa
               ]}
             />
           ))}
+
+          {/* Custom color swatch — shows current custom value, or opens picker */}
+          <TouchableOpacity
+            onPress={() => setShowColorPicker(true)}
+            style={[
+              styles.swatch,
+              styles.swatchCustom,
+              {
+                backgroundColor: isCustomBg ? draft.bgColor : 'transparent',
+                borderColor: isCustomBg ? tone.ink : tone.hairline,
+                borderWidth: isCustomBg ? 2 : 1,
+              },
+            ]}
+          >
+            {!isCustomBg && (
+              <Text style={[styles.swatchCustomText, { color: tone.muted }]}>＋</Text>
+            )}
+          </TouchableOpacity>
         </View>
 
         <Spacer />
@@ -281,16 +339,104 @@ export function EditorScreen({ page, decks, palette, texture, layout, dark, onCa
         )}
         <View style={{ height: 40 }} />
       </ScrollView>
+
+      {/* Custom color picker modal */}
+      <ColorPickerModal
+        visible={showColorPicker}
+        tone={tone}
+        current={draft.bgColor}
+        onApply={(color) => { set('bgColor', color); setShowColorPicker(false); }}
+        onCancel={() => setShowColorPicker(false)}
+      />
     </View>
+  );
+}
+
+// ─── Color Picker Modal ───────────────────────────────────────────────────────
+
+const isValidHex = (v: string) => /^#[0-9a-fA-F]{6}$/.test(v);
+
+function ColorPickerModal({
+  visible, tone, current, onApply, onCancel,
+}: {
+  visible: boolean;
+  tone: any;
+  current?: string;
+  onApply: (color: string) => void;
+  onCancel: () => void;
+}) {
+  const [hex, setHex] = useState(current && isValidHex(current) ? current : '#ffffff');
+
+  React.useEffect(() => {
+    if (visible) setHex(current && isValidHex(current) ? current : '#ffffff');
+  }, [visible]);
+
+  const valid = isValidHex(hex);
+  const preview = valid ? hex : '#cccccc';
+
+  const handleHexInput = (v: string) => {
+    const s = v.startsWith('#') ? v : '#' + v;
+    setHex(s.slice(0, 7));
+  };
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
+        <View style={cp.overlay}>
+          <View style={[cp.card, { backgroundColor: tone.bg, borderColor: tone.hairline }]}>
+            <Text style={[cp.heading, { color: tone.ink }]}>Custom color</Text>
+
+            {/* Hex input + preview */}
+            <View style={cp.hexRow}>
+              <View style={[cp.preview, { backgroundColor: preview, borderColor: tone.hairline }]} />
+              <TextInput
+                value={hex}
+                onChangeText={handleHexInput}
+                placeholder="#rrggbb"
+                placeholderTextColor={tone.muted}
+                autoCapitalize="none"
+                autoCorrect={false}
+                maxLength={7}
+                style={[cp.hexInput, { color: tone.ink, borderColor: tone.hairline }]}
+              />
+            </View>
+
+            {/* Color grid */}
+            <View style={cp.grid}>
+              {COLOR_GRID.map(c => (
+                <TouchableOpacity
+                  key={c}
+                  onPress={() => setHex(c)}
+                  style={[
+                    cp.gridSwatch,
+                    { backgroundColor: c, borderColor: hex === c ? tone.ink : 'transparent', borderWidth: hex === c ? 2 : 0 },
+                  ]}
+                />
+              ))}
+            </View>
+
+            <TouchableOpacity
+              onPress={() => valid && onApply(hex)}
+              style={[cp.applyBtn, { backgroundColor: valid ? tone.ink : tone.hairline }]}
+              disabled={!valid}
+            >
+              <Text style={[cp.applyBtnText, { color: valid ? tone.bg : tone.muted }]}>Apply</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity onPress={onCancel} style={cp.cancelBtn}>
+              <Text style={[cp.cancelText, { color: tone.muted }]}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
   );
 }
 
 // ——— Form helpers ———
 
 function Label({ children, tone }: { children: React.ReactNode; tone: any }) {
-  return (
-    <Text style={[styles.label, { color: tone.muted }]}>{children}</Text>
-  );
+  return <Text style={[styles.label, { color: tone.muted }]}>{children}</Text>;
 }
 
 function Spacer() {
@@ -379,12 +525,13 @@ function Chips({ options, value, onChange, tone, labels, swatch, palette }: {
 }
 
 function UploadSlot({ kind, tone, hasMedia, onPick }: {
-  kind: 'image' | 'video';
+  kind: 'image' | 'video' | 'gif';
   tone: any;
   hasMedia: boolean;
   onPick: () => void;
 }) {
-  const icon = kind === 'video' ? '▶' : '◍';
+  const icon = kind === 'video' ? '▶' : kind === 'gif' ? '◎' : '◍';
+  const label = kind === 'gif' ? 'GIF' : kind;
   return (
     <TouchableOpacity
       onPress={onPick}
@@ -392,19 +539,18 @@ function UploadSlot({ kind, tone, hasMedia, onPick }: {
     >
       <Text style={[styles.uploadIcon, { color: tone.muted }]}>{icon}</Text>
       <Text style={[styles.uploadText, { color: tone.muted }]}>
-        {hasMedia ? `✓ ${kind} selected — tap to change` : `Tap to upload ${kind}`}
+        {hasMedia ? `✓ ${label} selected — tap to change` : `Tap to upload ${label}`}
       </Text>
     </TouchableOpacity>
   );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   navBtn: { fontFamily: 'JetBrainsMono_400Regular', fontSize: 13 },
-  saveBtn: {
-    paddingVertical: 6, paddingHorizontal: 12,
-    borderRadius: 999,
-  },
+  saveBtn: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 999 },
   saveBtnText: { fontFamily: 'DMSans_500Medium', fontSize: 12 },
   previewSection: {
     paddingHorizontal: 18,
@@ -449,11 +595,7 @@ const styles = StyleSheet.create({
     lineHeight: 24,
     textAlignVertical: 'top',
   },
-  chips: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-  },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   chip: {
     paddingVertical: 6,
     paddingRight: 11,
@@ -463,23 +605,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
   },
-  chipText: {
-    fontFamily: 'DMSans_500Medium',
-    fontSize: 12,
-  },
-  chipSwatch: {
-    width: 14, height: 14,
-    borderRadius: 7,
-    borderWidth: 1,
-  },
-  swatchRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  swatch: {
-    width: 32, height: 32, borderRadius: 6,
-  },
+  chipText: { fontFamily: 'DMSans_500Medium', fontSize: 12 },
+  chipSwatch: { width: 14, height: 14, borderRadius: 7, borderWidth: 1 },
+  swatchRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  swatch: { width: 32, height: 32, borderRadius: 6 },
   swatchAuto: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -489,6 +618,15 @@ const styles = StyleSheet.create({
     fontFamily: 'JetBrainsMono_400Regular',
     fontSize: 8,
     letterSpacing: 0.5,
+  },
+  swatchCustom: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderStyle: 'dashed',
+  },
+  swatchCustomText: {
+    fontSize: 18,
+    lineHeight: 22,
   },
   uploadSlot: {
     width: '100%',
@@ -517,9 +655,77 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     alignItems: 'center',
   },
-  deleteBtnText: {
-    fontFamily: 'DMSans_400Regular',
-    fontSize: 13,
-    color: DESTRUCTIVE,
+  deleteBtnText: { fontFamily: 'DMSans_400Regular', fontSize: 13, color: DESTRUCTIVE },
+});
+
+const cp = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    paddingHorizontal: 18,
+    paddingBottom: 36,
   },
+  card: {
+    width: '100%',
+    borderRadius: 20,
+    borderWidth: 1,
+    paddingTop: 28,
+    paddingBottom: 24,
+    paddingHorizontal: 24,
+    gap: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 24,
+    elevation: 16,
+  },
+  heading: {
+    fontFamily: 'InstrumentSerif_400Regular_Italic',
+    fontSize: 24,
+    lineHeight: 28,
+  },
+  hexRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  preview: {
+    width: 44,
+    height: 44,
+    borderRadius: 8,
+    borderWidth: 1,
+    flexShrink: 0,
+  },
+  hexInput: {
+    flex: 1,
+    fontFamily: 'JetBrainsMono_400Regular',
+    fontSize: 16,
+    letterSpacing: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderRadius: 8,
+  },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  gridSwatch: {
+    width: 36,
+    height: 36,
+    borderRadius: 6,
+  },
+  applyBtn: {
+    height: 50,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
+  },
+  applyBtnText: { fontFamily: 'DMSans_500Medium', fontSize: 15, letterSpacing: 0.2 },
+  cancelBtn: { alignItems: 'center', paddingVertical: 6 },
+  cancelText: { fontFamily: 'DMSans_400Regular', fontSize: 14 },
 });

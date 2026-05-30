@@ -10,7 +10,7 @@ import { useSettingsStore } from '../../src/store/settingsStore';
 export default function DeckRoute() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { decks, pages } = useDeckStore();
+  const { decks, pages, updateDeck, deleteDeck } = useDeckStore();
   const { settings } = useSettingsStore();
   const { setScope } = useShuffleStore();
 
@@ -42,6 +42,8 @@ export default function DeckRoute() {
         onBack={() => router.back()}
         onEdit={handleEdit}
         onShuffleDeck={handleShuffleDeck}
+        onUpdateDeck={(patch) => updateDeck(id, patch)}
+        onDeleteDeck={() => { deleteDeck(id); router.back(); }}
       />
     </SafeAreaView>
   );
